@@ -1,0 +1,12 @@
+{
+  "name": "@app/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@app/shared": "workspace:*"
+  }
+}

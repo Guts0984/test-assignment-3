@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm 12 blocks dependency install scripts unless allowed here.
+allowBuilds:
+  esbuild: true
+  # Optional native speed-ups pulled in by testcontainers; it works without them.
+  cpu-features: false
+  ssh2: false
+  protobufjs: false
+  # Usage-analytics script pulled in by swagger-ui; not needed.
+  "@scarf/scarf": false
