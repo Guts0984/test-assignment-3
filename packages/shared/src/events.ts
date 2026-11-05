@@ -82,5 +82,23 @@ export const CACHE_GENERATION_CHANNEL = "cache:generation";
 export const CATALOG_GENERATION = "catalog";
 export const generationKey = (name: string): string => `gen:${name}`;
 
+/**
+ * Moves a cache generation to a new number and tells every api instance, in one step (a Redis script).
+ * KEYS[1] = generationKey(name), ARGV[1] = CACHE_GENERATION_CHANNEL, ARGV[2] = name.
+ * The new number is the Redis clock in milliseconds, or one more than the current number if that is bigger. It
+ * always goes up, and it keeps going up even if Redis lost its data (a plain counter would start again from 1,
+ * below what instances remember, and nothing would be cleared).
+ * Used by the api (after an edit) and by the worker (after any change in the database, so hand-made edits count too).
+ */
+export const BUMP_GENERATION_SCRIPT = `
+local time = redis.call("TIME")
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local current = tonumber(redis.call("GET", KEYS[1]) or "0")
+local next = math.max(current + 1, now)
+redis.call("SET", KEYS[1], next)
+redis.call("PUBLISH", ARGV[1], string.format('{"name":"%s","gen":%d}', ARGV[2], next))
+return next
+`;
+
 /** The api says "an event was edited, look at the outbox now" here; the worker listens. */
 export const OUTBOX_WAKE_CHANNEL = "outbox:wake";

@@ -54,8 +54,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       LOG_LEVEL: ${LOG_LEVEL}
-      # Requests per minute per visitor address. Only raised for the load test (see README).
-      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-600}
     depends_on:
       postgres:
         condition: service_healthy

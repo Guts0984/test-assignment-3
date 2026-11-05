@@ -1,5 +1,5 @@
 import { events, idempotencyKeys, outbox, users } from "@app/db";
-import { OUTBOX_WAKE_CHANNEL } from "@app/shared";
+import { CACHE_GENERATION_CHANNEL, CATALOG_GENERATION, generationKey, OUTBOX_WAKE_CHANNEL } from "@app/shared";
 import { verifyInternalRequest } from "@app/shared/internal";
 import { eq } from "drizzle-orm";
 import { Queue } from "bullmq";
@@ -98,6 +98,33 @@ describe("telling the web app that an event changed (assignment check 9)", () =>
     const plain = web.succeeded().find((r) => JSON.parse(r.body).eventId === other);
     expect(traced?.headers["x-request-id"]).toBe("trace-abc-123456");
     expect(plain?.headers["x-request-id"]).toBeUndefined();
+  });
+
+  it("clears the api caches BEFORE it tells the web app, also for an edit that never went through the api", async () => {
+    const heard: { at: number; gen: number }[] = [];
+    const listener = world.redis.duplicate();
+    await listener.subscribe(CACHE_GENERATION_CHANNEL);
+    listener.on("message", (_channel, message) => {
+      const parsed = JSON.parse(message) as { name: string; gen: number };
+      if (parsed.name === CATALOG_GENERATION) heard.push({ at: Date.now(), gen: parsed.gen });
+    });
+    try {
+      const web = await fakeWeb("ok");
+      const id = await makeEvent();
+      const before = Number((await world.redis.get(generationKey(CATALOG_GENERATION))) ?? 0);
+      await edit(id, "Changed by hand in SQL"); // not through the api: nobody cleared any cache
+      await world.startWorker({ webUrl: web.url, outboxPollMs: 50 });
+
+      await until(() => web.succeeded().length === 1, 5000, "the web app to be told");
+      const after = Number(await world.redis.get(generationKey(CATALOG_GENERATION)));
+      expect(after).toBeGreaterThan(before);
+      expect(heard.length).toBeGreaterThanOrEqual(1);
+      // The api instances heard about it before the web app was asked to read the event again.
+      expect(heard[0]?.at ?? Infinity).toBeLessThanOrEqual(web.requests[0]?.at ?? 0);
+      expect(heard[0]?.gen).toBe(after);
+    } finally {
+      listener.disconnect();
+    }
   });
 
   it("each version of an event is announced, in the order they happened", async () => {

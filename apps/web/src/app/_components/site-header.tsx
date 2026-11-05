@@ -7,7 +7,6 @@ import { getMyBookings } from "@/features/booking/server";
 import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 
-/** Who is logged in and how many bookings they have. Personal, so it is read per request and never cached. */
 async function UserArea() {
   const user = await getSessionUser().catch(() => null);
   if (!user) {
@@ -23,12 +22,21 @@ async function UserArea() {
     );
   }
   // If the count cannot be read, the header still works; it just shows 0.
-  const activeCount = await getMyBookings().then((r) => r.activeCount).catch(() => 0);
+  const activeCount = await getMyBookings()
+    .then((r) => r.activeCount)
+    .catch(() => 0);
   return (
     <div className="flex items-center gap-4">
-      {user.role === "admin" && <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Admin</span>}
+      {user.role === "admin" && (
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Admin
+        </span>
+      )}
       <ActiveBookingsLink serverCount={activeCount} />
-      <span className="hidden text-sm text-muted-foreground sm:inline" data-testid="user-email">
+      <span
+        className="hidden text-sm text-muted-foreground sm:inline"
+        data-testid="user-email"
+      >
         {user.email}
       </span>
       <LogoutButton />

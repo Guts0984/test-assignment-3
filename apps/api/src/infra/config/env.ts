@@ -21,7 +21,7 @@ const envSchema = z.object({
   CACHE_L2_TTL_MS: z.coerce.number().int().min(0).default(60_000),
   CACHE_NEGATIVE_TTL_MS: z.coerce.number().int().min(0).default(15_000),
   AVAILABILITY_TTL_MS: z.coerce.number().int().min(0).max(1000).default(1000),
-  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(300),
+  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(600),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
   LOGIN_LIMIT_PER_IP: z.coerce.number().int().min(1).default(20),
   LOGIN_LIMIT_PER_EMAIL: z.coerce.number().int().min(1).default(5),

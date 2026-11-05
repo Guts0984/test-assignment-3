@@ -11,8 +11,9 @@ import { filtersToQueryString, type CatalogFilters } from "../lib/filters";
 
 /**
  * The first page comes from the server (and its cache); "Show more" asks for the next ones.
- * The page that renders this gives it a `key` made from the filters, so changing a filter starts it
- * afresh: an answer to an earlier search can never be added to the list of a later one.
+ * The page that renders this gives it a `key` made from the filters and from the first page's content, so changing a
+ * filter, or any event on the first page being edited, starts it afresh: an answer to an earlier search can never be
+ * added to the list of a later one, and a page you come back to never shows titles that have since changed.
  */
 export function EventList({ initial, filters }: { initial: EventsPage; filters: CatalogFilters }) {
   const [items, setItems] = useState<EventDto[]>(initial.items);

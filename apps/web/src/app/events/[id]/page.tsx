@@ -11,6 +11,7 @@ import { getEvent, getNearestEventIds } from "@/features/event/server";
 import { apiCall } from "@/shared/api/api-client";
 import { getRequestContext } from "@/shared/api/request-context";
 import { logger } from "@/shared/logger";
+import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Skeleton } from "@/shared/ui/skeleton";
 
@@ -75,6 +76,12 @@ async function Seats({ eventId, capacity }: { eventId: number; capacity: number 
           <BookingForm eventId={eventId} loggedIn={user !== null} />
         </CardContent>
       </Card>
+      {/* Only for administrators. It sits here, with the parts that depend on who is looking, so it can never end up in the shared cached copy of the page. */}
+      {user?.role === "admin" && (
+        <Button asChild variant="outline">
+          <Link href={`/admin/events/${eventId}`}>Edit event</Link>
+        </Button>
+      )}
     </SeatsProvider>
   );
 }

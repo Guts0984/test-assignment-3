@@ -137,3 +137,15 @@ test("nginx keeps public pages for anonymous visitors only", async ({ request, p
   const res = await page.goto(url);
   expect(res?.headers()["x-cache-status"]).toBe("BYPASS");
 });
+
+test("every page answer carries a request id, and each request gets its own", async ({ request }) => {
+  const first = await request.get(`/events/${EVENT}?probe=1`);
+  const second = await request.get(`/events/${EVENT}?probe=2`);
+  const idOf = (res: typeof first) => res.headers()["x-request-id"];
+  expect(idOf(first)).toMatch(/^[0-9a-f]{32}$/);
+  expect(idOf(second)).toMatch(/^[0-9a-f]{32}$/);
+  expect(idOf(first)).not.toBe(idOf(second));
+  // The api answers with the same kind of id.
+  const api = await request.get(`/api/events/${EVENT}`);
+  expect(api.headers()["x-request-id"]).toMatch(/^[0-9a-f]{32}$/);
+});

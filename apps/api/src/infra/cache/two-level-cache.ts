@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CACHE_GENERATION_CHANNEL, generationKey } from "@app/shared";
+import { BUMP_GENERATION_SCRIPT, CACHE_GENERATION_CHANNEL, generationKey } from "@app/shared";
 import { z } from "zod";
 import type { Logger } from "../logger";
 import type { Redis } from "../redis";
@@ -58,20 +58,6 @@ const VALUE_PREFIX = "cache:";
 const LOCK_PREFIX = "lock:";
 // Only the owner may release a lock: compare the token first, then delete.
 const RELEASE_LOCK = `if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`;
-
-// A new generation is the Redis clock in milliseconds, or one more than the current number if that is
-// bigger. It always goes up, and it keeps going up even if Redis lost its data (a plain counter would
-// start again from 1, below what instances remember, and nothing would be cleared). The script also
-// announces the new number to every instance, in the same step.
-const BUMP_GENERATION = `
-local time = redis.call("TIME")
-local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-local current = tonumber(redis.call("GET", KEYS[1]) or "0")
-local next = math.max(current + 1, now)
-redis.call("SET", KEYS[1], next)
-redis.call("PUBLISH", ARGV[1], string.format('{"name":"%s","gen":%d}', ARGV[2], next))
-return next
-`;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -231,7 +217,7 @@ export async function createCache({
         current: () => generations.get(name) ?? 0,
         bump: async () => {
           const next = await attempt("bump", async () => {
-            const gen = await redis.eval(BUMP_GENERATION, 1, generationKey(name), CACHE_GENERATION_CHANNEL, name);
+            const gen = await redis.eval(BUMP_GENERATION_SCRIPT, 1, generationKey(name), CACHE_GENERATION_CHANNEL, name);
             return Number(gen);
           });
           // Without Redis we can still make this process forget; other instances rely on TTLs.

@@ -44,10 +44,7 @@ jobs:
       # The one manual step from the README, done here too.
       - run: cp .env.example .env
 
-      # The load test sends 300 requests at once from one address, more than the normal limit per minute.
       - name: Start the stack
-        env:
-          RATE_LIMIT_MAX: "5000"
         run: docker compose up --build --wait --wait-timeout 300
 
       - name: Install the browser for the tests

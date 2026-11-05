@@ -1,5 +1,5 @@
 import type { Database } from "@app/db";
-import { OUTBOX_WAKE_CHANNEL } from "@app/shared";
+import { BUMP_GENERATION_SCRIPT, CACHE_GENERATION_CHANNEL, CATALOG_GENERATION, generationKey, OUTBOX_WAKE_CHANNEL } from "@app/shared";
 import { Queue, Worker, type ConnectionOptions } from "bullmq";
 import type { Redis } from "ioredis";
 import { cleanOldRecords } from "./jobs/cleanup";
@@ -20,7 +20,7 @@ export interface WorkerSettings {
 export interface WorkerDeps {
   db: Database;
   /** Used to announce free seats. */
-  redis: Pick<Redis, "publish">;
+  redis: Pick<Redis, "publish" | "eval">;
   /** A connection of its own, for listening to "look at the outbox now". */
   subscriber: Pick<Redis, "subscribe" | "unsubscribe" | "on" | "disconnect">;
   redisUrl: string;
@@ -90,6 +90,9 @@ export async function startWorker({ db, redis, subscriber, redisUrl, logger, set
         log.debug("already done, skipping");
         return;
       }
+      // First the api's own caches: if the edit did not go through the api (a hand-made change in the database),
+      // they still hold the old event, and the web app would read that old copy again while refreshing.
+      await redis.eval(BUMP_GENERATION_SCRIPT, 1, generationKey(CATALOG_GENERATION), CACHE_GENERATION_CHANNEL, CATALOG_GENERATION);
       await sendRevalidation(
         { url: revalidate.url, secret: revalidate.secret, timeoutMs: revalidate.timeoutMs, ...(settings.fetchImpl ? { fetchImpl: settings.fetchImpl } : {}) },
         job.data,

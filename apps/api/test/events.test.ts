@@ -398,4 +398,10 @@ describe("documentation", () => {
     const names = res.body.paths["/events"].get.parameters.map((p: { name: string }) => p.name);
     expect(names).toEqual(expect.arrayContaining(["city", "q", "from", "to", "cursor", "limit"]));
   });
+
+  it("tells the reader how to log in on the docs page, because the Authorize box cannot set a cookie", async () => {
+    const res = await get("/openapi.json");
+    expect(res.body.info.description).toContain("POST /auth/login");
+    expect(res.body.components.securitySchemes.sessionCookie.description).toContain("POST /auth/login");
+  });
 });

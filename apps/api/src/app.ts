@@ -121,7 +121,7 @@ export function createApp({ logger, db, pool, redis, lifecycle, cache, catalog, 
   app.use(createBookingsRouter(createBookingsController(bookings)));
 
   const openApiDocument = buildOpenApiDocument(
-    { title: "Event Tickets API", version: "1.0.0", description: "Catalog, bookings and live seat counts." },
+    { title: "Event Tickets API", version: "1.0.0", description: "Catalog, bookings and live seat counts.\n\n**To try the endpoints that need a login:** open `POST /auth/login`, press \"Try it out\" and send an email and password (demo accounts are in the README). The browser then keeps the session cookie and sends it with every request on this page. The \"Authorize\" box does not need to be filled in: a cookie cannot be set from it." },
     documentedRoutes,
   );
   app.get("/openapi.json", (_req, res) => {

@@ -128,7 +128,13 @@ export function buildOpenApiDocument(
     paths,
     components: {
       securitySchemes: {
-        sessionCookie: { type: "apiKey", in: "cookie", name: "sid" },
+        sessionCookie: {
+          type: "apiKey",
+          in: "cookie",
+          name: "sid",
+          description:
+            "Leave this empty. The session cookie is set by POST /auth/login and the browser sends it by itself. Log in with that endpoint first.",
+        },
       },
     },
   };

@@ -65,26 +65,48 @@ browser ──► nginx ──► web (Next.js) ──► api1 ┐
 * **Holds expire.** The worker turns held bookings past their time into expired ones and frees the seats. A late
   confirm is also refused by the api (and frees the seats at once).
 * **Edits reach the site.** A trigger writes a note to an `outbox` table. The worker makes one job per note
-  (job id = event + version, so no duplicates), calls the site's signed `/internal/revalidate` with exponential
-  pauses between tries, and only then checks the note off.
+  (job id = event + version, so no duplicates). Each job first moves the api's cache generation (so an edit made by
+  hand in SQL is not served from the api's cache either), then calls the site's signed `/internal/revalidate` with
+  exponential pauses between tries, and only then checks the note off.
 * **Sessions** live in Redis behind an `httpOnly`, `SameSite=Lax` cookie; passwords use argon2.
   Cross-site writes are refused (`Origin` check).
-* **Request id.** nginx makes one per request and passes it to the site, the api and (through the outbox) the worker;
-  every JSON log line carries it.
+* **Request id.** nginx makes one per request and passes it to the site (`proxy.ts` logs it and returns it in the
+  `x-request-id` header), the api and, for edits, through the outbox to the worker; every JSON log line carries it.
 * **Real client address.** nginx overwrites `X-Forwarded-For`; the api trusts exactly one proxy. The site passes the
   visitor's address on in signed headers (secret `INTERNAL_API_SECRET`) that nginx removes from anything a browser
   sends. Rate limits count that address, not nginx's.
 
+### Database rules (where to find them)
+
+The guarantees that must hold whatever the code does live in the database, in `packages/db/`:
+
+| Rule | Where |
+| --- | --- |
+| `booked_seats` never above `capacity`, never negative; capacity above 0; quantity 1 to 4; idempotency key length | `CHECK` constraints declared in `src/schema.ts` (Drizzle generated `migrations/0000_init.sql` from them) |
+| `booked_seats` follows the bookings that are `held` or `confirmed`; the update locks only that event's row | trigger `bookings_sync_seats` in `migrations/0001_triggers.sql` |
+| `version` goes up only when the content of an event changes | trigger `events_bump_version` (same file) |
+| every event change writes a note to `outbox` (also an edit made by hand in SQL), with the request id | trigger `events_enqueue_outbox` (`0001`, replaced in `0002_outbox_request_id.sql`) |
+| a booking only moves `held` to `confirmed`, `cancelled` or `expired`, or `confirmed` to `cancelled`; its event and owner never change (error `BK001`) | trigger `bookings_guard` (`0001`) |
+
+Drizzle's schema language cannot describe triggers, so they are **custom migrations** (`pnpm --filter @app/db db:generate:custom`).
+They run in order with all the others, once, by the `migrate` service before the apps start. Always use the migrations,
+never `drizzle-kit push`: `push` does not know about the triggers. `packages/db/test/seats.test.ts` runs the real
+migrations and tries to oversell.
+
 ### Cache table
 
-| Layer | What | How long | Cleared by |
-| --- | --- | --- | --- |
-| nginx | public pages (`/`, `/events/…`) for visitors without a session cookie | 5 s | time. Pages with a cookie, `/me`, `/checkout`, `/admin`, `/login`, `/register`: never (`X-Cache-Status: BYPASS`) |
-| Next.js `use cache` | event, event list, cities | up to 5 min fresh / 1 h hard | tags `event:<id>`, `events`, `cities`: the worker calls `/internal/revalidate` after every edit; the admin form clears them itself |
-| api level 1 (memory) | events, lists, cities | 10 s, 1000 entries, least recently used out | pub/sub: any edit moves a *generation number* that is part of every key |
-| api level 2 (Redis) | the same | 60 s | the same generation number |
-| api, "not found" | missing events | 15 s | the generation number |
-| api, free seats | `GET /events/:id/availability` | 1 s, memory only | time; every booking also drops the local copy and announces the new number (SSE) |
+| Layer | What | How long | Cleared by | Worst case old data |
+| --- | --- | --- | --- | --- |
+| Browser | pages are sent `no-store`; api answers carry an `ETag` and no lifetime; static files (`/_next/static`) are cached for a year but their names change with every build | none for data | not needed | none. In-app links ask the server again (a test edits an event and follows links without reloading) |
+| nginx | public pages (`/`, `/events/…`) for visitors without a session cookie | 5 s | time. Pages with a cookie, `/me`, `/checkout`, `/admin`, `/login`, `/register`: never (`X-Cache-Status: BYPASS`); answers with `Set-Cookie` are never saved | 5 s after an edit (plus the ~0.3 s the worker needs to refresh the site, see next row) |
+| Next.js `use cache` | event, event list, cities | fresh up to 5 min, hard limit 1 h | tags `event:<id>`, `events`, `cities`: the worker calls `/internal/revalidate` after every edit; the admin form clears them itself | about 1 s normally. If the worker or the site is down: until the worker retries (growing pauses), at most the 1 h limit |
+| api level 1 (memory) | events, lists, cities | 10 s, 1000 entries, least recently used out | pub/sub: any edit (through the api, or made by hand in the database via the worker) moves a *generation number* that is part of every key | immediate on a healthy Redis; 10 s if a pub/sub message is lost |
+| api level 2 (Redis) | the same | 60 s | the same generation number | immediate; 60 s without Redis messages |
+| api, "not found" | missing events | 15 s | the generation number | 15 s (an event created in that window) |
+| api, free seats | `GET /events/:id/availability` | 1 s, memory only | time; every booking also drops the local copy and announces the new number (SSE) | 1 s |
+
+So after a direct `PATCH` the card and the list show the change within 5 s plus a fraction of a second (the nginx
+copy that was made just before the edit lives its full 5 s; the worker has refreshed the site long before it ends).
 
 A Redis lock plus a second look makes 100 simultaneous requests for a cold event over both api instances one
 database query (a test checks this).
@@ -122,17 +144,21 @@ pnpm --filter @app/e2e exec playwright install chromium   # once
 pnpm e2e
 ```
 
-They cover: register, book and confirm; a stale page asking for too many seats (error, nothing changes); a real 404
+They cover (17 tests): register, book and confirm; a stale page asking for too many seats (error, nothing changes); a real 404
 status for a missing event; one user cannot see another's booking; an admin edit visible within 5 s; the admin
-conflict view; nginx `HIT` for visitors and `BYPASS` with a session.
+conflict view; nginx `HIT` for visitors and `BYPASS` with a session; a request id on every answer; a wrong password;
+admin page closed to others; the checkout timer running out; a second tab following the free seats; cancelling with
+rollback and the header counter; keyboard-only sign-up and booking with errors tied to fields; the seat count refused
+with 429 while the rest of the card still shows; an edit shown after navigating with in-app links only.
 
 ## Load test
 
 300 requests fight for the last 20 seats of one event (one user, a new `Idempotency-Key` per request, 50 at a time).
-The default limit is 300 requests per minute per address, so for this test raise it:
+The load test sends about 310 requests in one minute from one address. The default limit is 600 per minute per
+address (`RATE_LIMIT_MAX`), so it runs with the normal settings:
 
 ```bash
-RATE_LIMIT_MAX=5000 docker compose up --build -d --wait
+docker compose up --build -d --wait
 pnpm loadtest        # needs Node 22.18 or newer on your machine
 ```
 
@@ -211,13 +237,7 @@ Shared by every page:                  167.9 kB
 
 ## Limitations (honest list)
 
-* **Direct SQL edits** to an event (not through the api) still reach the worker through the outbox, but the api's own
-  cache is not told, so the site can show the old data until the api caches (up to 60 s) and the site's cache turn over.
-  Edits through `PATCH /events/:id` are fully consistent.
 * The checkout page for someone else's booking shows the "not found" page but with status 200 (the page streams);
   the api answers 404 for it. A missing **event** page is a real 404.
-* The site writes a log line only for the internal refresh, not for every page view; the request id is in the nginx
-  and api logs for each request and in the worker's logs for edits.
 * One Redis and one PostgreSQL: no replication or failover.
-* The load test needs the raised rate limit (see above); the limit itself is a requirement.
 * Payments are not real: "Confirm" only confirms the booking.
