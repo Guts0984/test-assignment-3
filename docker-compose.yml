@@ -52,7 +52,10 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       LOG_LEVEL: ${LOG_LEVEL}
+      # Requests per minute per visitor address. Only raised for the load test (see README).
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,20 +70,76 @@ services:
       retries: 10
       start_period: 5s
     restart: unless-stopped
+    # Both instances answer to the name "api" as well, so the web app can talk to either.
+    networks:
+      default:
+        aliases: [api]
 
   api2:
     <<: *api
 
+  # Background jobs: expires unconfirmed bookings, tells the web app when an event changed.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      WEB_REVALIDATE_URL: http://web:3000/internal/revalidate
+      LOG_LEVEL: ${LOG_LEVEL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:4100/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  # The site (Next.js). It reaches the api through the shared name "api" and never through nginx.
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      API_URL: http://api:4000
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL}
+    depends_on:
+      api1:
+        condition: service_healthy
+      api2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # The only service open to the outside.
   nginx:
     image: nginxinc/nginx-unprivileged:1.27-alpine
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/snippets:/etc/nginx/snippets:ro
     ports:
       - "${WEB_HOST_PORT}:8080"
     depends_on:
       api1:
         condition: service_healthy
       api2:
+        condition: service_healthy
+      web:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz"]
