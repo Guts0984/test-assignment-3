@@ -75,6 +75,30 @@ describe("graceful shutdown", () => {
     expect(server.listening).toBe(false);
   });
 
+  it("does not wait for the keep-alive timeout of connections that become idle during shutdown", async () => {
+    const lifecycle = createLifecycle({ logger, timeoutMs: 8000 });
+    const { server, port } = start(lifecycle);
+    // A client that keeps its connection open for reuse, like nginx does towards the api.
+    const agent = new http.Agent({ keepAlive: true, keepAliveMsecs: 60_000 });
+    const slow = new Promise<number>((resolve, reject) => {
+      http
+        .get({ host: "127.0.0.1", port, path: "/slow", agent }, (res) => {
+          res.resume();
+          res.on("end", () => resolve(res.statusCode ?? 0));
+        })
+        .on("error", reject);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const started = Date.now();
+    await lifecycle.shutdown(server, () => undefined);
+    const took = Date.now() - started;
+    agent.destroy();
+
+    expect(await slow).toBe(200); // the request still got its answer
+    expect(took).toBeLessThan(1500); // the server's own keep-alive timeout is 5 seconds
+  });
+
   it("runs only once if asked twice", async () => {
     const lifecycle = createLifecycle({ logger, timeoutMs: 1000 });
     const { server } = start(lifecycle);

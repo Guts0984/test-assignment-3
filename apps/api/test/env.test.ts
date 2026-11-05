@@ -4,6 +4,7 @@ import { parseEnv } from "../src/infra/config/env";
 const valid = {
   DATABASE_URL: "postgres://user:pw@localhost:5432/db",
   REDIS_URL: "redis://localhost:6379",
+  INTERNAL_API_SECRET: "a".repeat(32),
 };
 
 describe("parseEnv", () => {
@@ -31,7 +32,7 @@ describe("parseEnv", () => {
   it("lists every problem at once", () => {
     const result = parseEnv({});
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.problems).toHaveLength(2);
+    if (!result.ok) expect(result.problems).toHaveLength(3);
   });
 
   it("rejects a malformed value instead of ignoring it", () => {

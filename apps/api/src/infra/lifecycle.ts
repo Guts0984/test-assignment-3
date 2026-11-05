@@ -26,9 +26,12 @@ export function createLifecycle({ logger, timeoutMs }: LifecycleOptions): Lifecy
 
     // Stop listening: no new connections. `close` calls back once the last request is done.
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
-    server.closeIdleConnections();
 
     await Promise.all(hooks.map(async (hook) => hook()));
+
+    // Connections that are idle right now can go. (Connections that finish a response while we shut
+    // down are closed by the connection-close middleware, after the answer has been fully sent.)
+    server.closeIdleConnections();
 
     const timer = setTimeout(() => {
       logger.warn({ timeoutMs }, "requests did not finish in time, closing the rest");
