@@ -1,4 +1,5 @@
 import js from "@eslint/js";
+import nextVitals from "eslint-config-next/core-web-vitals";
 import functional from "eslint-plugin-functional";
 import tseslint from "typescript-eslint";
 
@@ -7,9 +8,10 @@ const noRelativePackageImports = {
   message: "Import shared code through the package name (@app/shared), not a relative path.",
 };
 
+// A feature has two doors: its index (safe to use anywhere) and its `server` file (server-only code).
 const noDeepFeatureImports = {
-  group: ["@/features/*/*"],
-  message: "Import from the feature's public index (@/features/<name>), not its internals.",
+  group: ["@/features/*/*", "!@/features/*/server"],
+  message: "Import from the feature's public entry (@/features/<name> or @/features/<name>/server), not its internals.",
 };
 
 const noFeatureImports = {
@@ -21,12 +23,24 @@ const restrictImports = (...patterns) => ({
   "no-restricted-imports": ["error", { patterns: [noRelativePackageImports, ...patterns] }],
 });
 
+// The Next.js rules (React Hooks, Core Web Vitals, @next/next) apply to the web app only.
+const nextRules = nextVitals.map((config) =>
+  "ignores" in config && !("files" in config) && !("rules" in config) ? config : { ...config, files: ["apps/web/**/*.{js,jsx,mjs,ts,tsx}"] },
+);
+
 export default tseslint.config(
   {
     ignores: ["**/dist/**", "**/.next/**", "**/node_modules/**", "**/coverage/**", "**/next-env.d.ts"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  ...nextRules,
+  {
+    files: ["apps/web/**/*.{ts,tsx}"],
+    settings: { next: { rootDir: "apps/web" } },
+    // Only for the old Pages Router; this app uses the App Router.
+    rules: { "@next/next/no-html-link-for-pages": "off" },
+  },
   {
     rules: {
       "@typescript-eslint/no-explicit-any": "error",

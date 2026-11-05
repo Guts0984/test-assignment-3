@@ -8,12 +8,15 @@
   "scripts": {
     "typecheck": "pnpm -r --parallel typecheck",
     "lint": "eslint .",
-    "test": "pnpm -r --if-present test"
+    "test": "pnpm -r --if-present test",
+    "loadtest": "pnpm --filter @app/loadtest start",
+    "e2e": "pnpm --filter @app/e2e e2e"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
     "@types/node": "^22.20.5",
     "eslint": "^9.39.0",
+    "eslint-config-next": "^16.4.5",
     "eslint-plugin-functional": "^10.0.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.1"

@@ -1,6 +1,8 @@
 packages:
   - apps/*
   - packages/*
+  - e2e
+  - loadtest
 
 # pnpm 12 blocks dependency install scripts unless allowed here.
 allowBuilds:
@@ -11,3 +13,5 @@ allowBuilds:
   protobufjs: false
   # Usage-analytics script pulled in by swagger-ui; not needed.
   "@scarf/scarf": false
+  # Optional native speed-up used by bullmq; it works without it.
+  msgpackr-extract: false
