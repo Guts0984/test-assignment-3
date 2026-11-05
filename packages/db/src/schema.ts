@@ -129,6 +129,8 @@ export const outbox = pgTable(
     eventVersion: integer().notNull(),
     createdAt: timestamptz().notNull().defaultNow(),
     dispatchedAt: timestamptz(),
+    /** The request that caused the change, so one id can be followed from nginx to the worker. */
+    requestId: text(),
   },
   (t) => [
     uniqueIndex("outbox_event_version_idx").on(t.eventId, t.eventVersion),
