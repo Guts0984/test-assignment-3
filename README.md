@@ -98,15 +98,16 @@ migrations and tries to oversell.
 | Layer | What | How long | Cleared by | Worst case old data |
 | --- | --- | --- | --- | --- |
 | Browser | pages are sent `no-store`; api answers carry an `ETag` and no lifetime; static files (`/_next/static`) are cached for a year but their names change with every build | none for data | not needed | none. In-app links ask the server again (a test edits an event and follows links without reloading) |
-| nginx | public pages (`/`, `/events/…`) for visitors without a session cookie | 5 s | time. Pages with a cookie, `/me`, `/checkout`, `/admin`, `/login`, `/register`: never (`X-Cache-Status: BYPASS`); answers with `Set-Cookie` are never saved | 5 s after an edit (plus the ~0.3 s the worker needs to refresh the site, see next row) |
+| nginx | public pages (`/`, `/events/…`) for visitors without a session cookie | 5 s | time. Pages with a cookie, `/me`, `/checkout`, `/admin`, `/login`, `/register`: never (`X-Cache-Status: BYPASS`); answers with `Set-Cookie` are never saved | up to 6 s after an edit: nginx counts a copy's age in whole seconds, so a copy lives between 5 and 6 s (measured: 5.0 to 6.0 s). The worker refreshes the site within about 10 ms of the edit and the site builds the new page at once, so this is almost all nginx |
 | Next.js `use cache` | event, event list, cities | fresh up to 5 min, hard limit 1 h | tags `event:<id>`, `events`, `cities`: the worker calls `/internal/revalidate` after every edit; the admin form clears them itself | about 1 s normally. If the worker or the site is down: until the worker retries (growing pauses), at most the 1 h limit |
 | api level 1 (memory) | events, lists, cities | 10 s, 1000 entries, least recently used out | pub/sub: any edit (through the api, or made by hand in the database via the worker) moves a *generation number* that is part of every key | immediate on a healthy Redis; 10 s if a pub/sub message is lost |
 | api level 2 (Redis) | the same | 60 s | the same generation number | immediate; 60 s without Redis messages |
 | api, "not found" | missing events | 15 s | the generation number | 15 s (an event created in that window) |
 | api, free seats | `GET /events/:id/availability` | 1 s, memory only | time; every booking also drops the local copy and announces the new number (SSE) | 1 s |
 
-So after a direct `PATCH` the card and the list show the change within 5 s plus a fraction of a second (the nginx
-copy that was made just before the edit lives its full 5 s; the worker has refreshed the site long before it ends).
+So after a direct `PATCH` the list (a page nginx had not saved yet) shows the change within about 0.1 s, and the card
+within 5 to 6 s when nginx had saved it just before the edit. If the assignment's two rules (nginx keeps pages for 5 s; a change shows within
+5 s) must both hold to the second, `proxy_cache_valid` would have to be 4 s; I kept the 5 s the assignment names.
 
 A Redis lock plus a second look makes 100 simultaneous requests for a cold event over both api instances one
 database query (a test checks this).

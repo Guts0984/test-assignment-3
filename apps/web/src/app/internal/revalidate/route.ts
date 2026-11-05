@@ -28,5 +28,12 @@ export async function POST(request: Request): Promise<Response> {
   revalidateTag(EVENTS_TAG, { expire: 0 });
   revalidateTag(CITIES_TAG, { expire: 0 });
   logger.info({ requestId, eventId: body.data.eventId, version: body.data.version }, "cached copies cleared");
+
+  // Build the new pages now, in the background, so the next visitor (or nginx, when its 5-second copy runs out) does not
+  // have to wait for a fresh render. The answer to the worker does not wait for this.
+  const base = `http://127.0.0.1:${process.env["PORT"] ?? "3000"}`;
+  for (const path of [`/events/${body.data.eventId}`, "/"]) {
+    void fetch(`${base}${path}`, { headers: { "x-request-id": requestId ?? crypto.randomUUID() } }).catch(() => undefined);
+  }
   return Response.json({ ok: true });
 }
