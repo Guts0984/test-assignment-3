@@ -31,14 +31,42 @@ test("a wrong password shows an error and nobody is logged in", async ({ page })
   await expect(page.getByTestId("user-email")).toHaveCount(0);
 });
 
-test("the admin page sends visitors and ordinary users to the login page", async ({ page }) => {
+test("the admin page sends visitors to the login page and tells ordinary users they have no access", async ({ page }) => {
   await page.goto(`/admin/events/${EVENT}`);
   await expect(page).toHaveURL(/\/login\?next=/);
 
   await logIn(page, users.alice);
-  await page.goto(`/admin/events/${EVENT}`);
-  await expect(page).toHaveURL(/\/login\?next=/);
+  const response = await page.goto(`/admin/events/${EVENT}`);
+  expect(response?.status()).toBe(403);
+  await expect(page.getByRole("heading", { name: "You do not have access to this page" })).toBeVisible();
   await expect(page.getByLabel("Title")).toHaveCount(0);
+});
+
+test("closed pages answer with a real status, not a 200 with a redirect inside the page", async ({ request }) => {
+  const bookingId = "6f1c3a52-0000-4000-8000-000000000000";
+  for (const path of ["/me/bookings", `/admin/events/${EVENT}`, `/checkout/${bookingId}`]) {
+    // Not logged in: a redirect to the login page that remembers where to come back to (what `curl -I` would see).
+    const anonymous = await request.fetch(path, { method: "HEAD", maxRedirects: 0 });
+    expect(anonymous.status(), path).toBe(307);
+    expect(anonymous.headers()["location"], path).toContain(`/login?next=${encodeURIComponent(path)}`);
+    expect(anonymous.headers()["cache-control"]).toContain("no-store");
+  }
+
+  // Logged in but not an administrator: 403 on the admin page only.
+  const alice = await apiAs(users.alice);
+  const forbidden = await alice.fetch(`/admin/events/${EVENT}`, { method: "HEAD", maxRedirects: 0 });
+  expect(forbidden.status()).toBe(403);
+  expect((await alice.fetch("/me/bookings", { method: "HEAD", maxRedirects: 0 })).status()).toBe(200);
+  await alice.dispose();
+
+  // An administrator gets in.
+  const admin = await apiAs(users.admin);
+  expect((await admin.fetch(`/admin/events/${EVENT}`, { method: "HEAD", maxRedirects: 0 })).status()).toBe(200);
+  await admin.dispose();
+
+  // A cookie that means nothing is the same as no cookie.
+  const stale = await request.fetch(`/admin/events/${EVENT}`, { method: "HEAD", maxRedirects: 0, headers: { cookie: "sid=not-a-real-session" } });
+  expect(stale.status()).toBe(307);
 });
 
 test("when the time is up the checkout page says so and cannot confirm", async ({ page }) => {

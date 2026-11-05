@@ -237,7 +237,12 @@ Shared by every page:                  167.9 kB
 
 ## Limitations (honest list)
 
-* The checkout page for someone else's booking shows the "not found" page but with status 200 (the page streams);
-  the api answers 404 for it. A missing **event** page is a real 404.
+* **Closed pages and their status codes.** `src/proxy.ts` checks before anything is sent: a visitor who is not logged in
+  gets a real `307` to `/login?next=...` on `/me/*`, `/checkout/*` and `/admin/*`, and a logged-in user who is not an
+  administrator gets a real `403` on `/admin/*` (an administrator is checked with the api; if the api cannot answer, the
+  page decides and shows its own error). On `/me` and `/checkout` the proxy only looks for a session cookie, so a cookie
+  that is no longer valid gets the page, which then sends the visitor to log in (status 200, redirect inside the page).
+* The checkout page for someone else's booking shows the "not found" page but with status 200 (the proxy does not know
+  who owns a booking; the page streams); the api answers 404 for it. A missing **event** page is a real 404.
 * One Redis and one PostgreSQL: no replication or failover.
 * Payments are not real: "Confirm" only confirms the booking.
